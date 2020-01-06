@@ -88,6 +88,11 @@ def GetDataForTraining(folder):
             y_test.append(0)
     return X_train, X_test, y_train, y_test
 
+
+'''
+Determining best hyperparameters
+Train SVM and save it to file
+'''
 def GetBestHyperparameters(X_train, X_test, y_train, y_test):
     print("Number of images: ", len(X_train))
     ''' best = 1
@@ -116,6 +121,9 @@ def GetBestHyperparameters(X_train, X_test, y_train, y_test):
     print("C: ", best_c, " gamma: ", best_gamma)
 
 
+'''
+Load SVM from file
+'''
 def LoadSVM():
     filename = "svm_model.sav"
     model = pickle.load(open(filename, 'rb'))
@@ -129,6 +137,9 @@ def LoadSVM():
     return model
 
 
+'''
+Check if there is a person on an image
+'''
 def CheckImage(model, imagefe):
     hog = cv2.HOGDescriptor()
     images = []
