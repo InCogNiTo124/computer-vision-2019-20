@@ -2,7 +2,6 @@ import cv2
 import numpy as np
 import os
 import sklearn
-import itertools as it
 import pickle
 from sklearn.svm import SVC
 from sklearn.metrics import zero_one_loss
@@ -21,6 +20,7 @@ def GetDataForTraining(folder):
         img = cv2.imread(os.path.join(pos_folder, filename))
         if img is not None:
             img = cv2.resize(img, (64, 128), interpolation = cv2.INTER_AREA)
+            # Transpose to have rows of images and columns of features
             X_train.extend(hog.compute(img).transpose())
             y_train.append(1)
             img = cv2.flip(img, 1)
@@ -51,15 +51,15 @@ def GetDataForTraining(folder):
                             y_train.append(0)
                         if x_second == width:
                             break
-                        x_first += int(x_size / 2)
-                        x_second += int(x_size / 2)
+                        x_first += x_size // 2
+                        x_second += x_size // 2
                         if x_second > width:
                             x_second = width
                             x_first = width - x_size
                     if y_second == height:
                         break
-                    y_first += int(y_size / 2)
-                    y_second += int(y_size / 2)
+                    y_first += y_size // 2
+                    y_second += y_size // 2
                     if y_second > height:
                         y_second = height
                         y_first = height - y_size
@@ -113,10 +113,10 @@ def GetBestHyperparameters(X_train, X_test, y_train, y_test):
                 best_c = C
                 best_gamma = gamma'''
     best_c = 2
-    best_gamma = 3e-2
+    best_gamma = -5
     kernel = 'rbf'
     filename = "svm_model.sav"
-    model = SVC(C = pow(2, best_c), kernel = kernel, gamma = best_gamma).fit(X_train, y_train)
+    model = SVC(C=2**best_c, kernel=kernel, gamma=2**best_gamma).fit(X_train, y_train)
     pickle.dump(model, open(filename, 'wb'))
     print("C: ", best_c, " gamma: ", best_gamma)
 
@@ -124,23 +124,16 @@ def GetBestHyperparameters(X_train, X_test, y_train, y_test):
 '''
 Load SVM from file
 '''
-def LoadSVM():
-    filename = "svm_model.sav"
-    model = pickle.load(open(filename, 'rb'))
-    correct_classification = 0
+def checkSVM(model, X_test, y_test):
     values = model.predict(X_test)
-    for i in range(len(values)):
-        if values[i] == y_test[i]:
-            correct_classification += 1
-
-    print("Correctly classified " + str(correct_classification) + " examples out of " + str(len(values)))
-    return model
+    correct_classification = np.sum(values == y_test)
+    print("Correctly classified {}/{} ({}%)".format(correct_classification, len(values), correct_classification / len(values)))
 
 
 '''
 Check if there is a person on an image
 '''
-def CheckImage(model, imagefe):
+def CheckImage(model, X_test, y_test):
     hog = cv2.HOGDescriptor()
     images = []
     images.append(cv2.imread("./one.png"))
@@ -212,8 +205,17 @@ def CheckImage(model, imagefe):
             cv2.waitKey(0)
             cv2.destroyAllWindows()
 
-
+def trainSVM(X_train, y_train, C, gamma, save, filename="svm_model.sav"):
+    model = SVC(C=C, kernel='rbf', gamma=gamma).fit(X_train, y_train)
+    if save:
+        with open(filename, 'wb') as file:
+            pickle.dump(model, file) 
+    return model
 X_train, X_test, y_train, y_test = GetDataForTraining("./INRIAPerson")
-GetBestHyperparameters(X_train, X_test, y_train, y_test)
-model = LoadSVM()
-CheckImage(model, "mememe")
+#C, gamma = GetBestHyperparameters(X_train, X_test, y_train, y_test)
+best_C = 2 ** 2.0
+best_gamma = 2 ** -5.0
+print("C: ", best_C, " gamma: ", best_gamma)
+model = trainSVM(X_train, y_train, C=best_C, gamma=best_gamma, save=True)
+checkSVM(model, X_test, y_test)
+CheckImage(model, X_test, y_test)
