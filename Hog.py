@@ -31,7 +31,6 @@ def GetDataForTraining(folder):
     for filename in os.listdir(neg_folder):
         image = cv2.imread(os.path.join(neg_folder, filename))
         if image is not None:
-
             x_size = 64
             y_size = 128
             height, width, channels = image.shape
@@ -43,7 +42,7 @@ def GetDataForTraining(folder):
                     x_second = x_size
                     while x_second < width:
                         random_number = np.random.random_sample()
-                        if random_number > 0.95:
+                        if random_number > 0.925:
                             roi = image[y_first:y_second, x_first:x_second]
                             roi_resized = cv2.resize(roi, (64, 128), interpolation=cv2.INTER_AREA)
                             roi_hog = hog.compute(roi_resized).transpose()
@@ -78,14 +77,52 @@ def GetDataForTraining(folder):
             img = cv2.resize(img, (64, 128), interpolation=cv2.INTER_AREA)
             X_test.extend(hog.compute(img).transpose())
             y_test.append(1)
+            img = cv2.flip(img, 1)
+            X_train.extend(hog.compute(img).transpose())
+            y_train.append(1)
 
     neg_folder = os.path.join(folder, "Test/neg")
     for filename in os.listdir(neg_folder):
-        img = cv2.imread(os.path.join(neg_folder, filename))
-        if img is not None:
-            img = cv2.resize(img, (64, 128), interpolation=cv2.INTER_AREA)
-            X_test.extend(hog.compute(img).transpose())
+        image = cv2.imread(os.path.join(neg_folder, filename))
+        if image is not None:
+            x_size = 64
+            y_size = 128
+            height, width, channels = image.shape
+            while x_size < width and y_size < height:
+                y_first = 0
+                y_second = y_size
+                while y_second < height:
+                    x_first = 0
+                    x_second = x_size
+                    while x_second < width:
+                        random_number = np.random.random_sample()
+                        if random_number > 0.95:
+                            roi = image[y_first:y_second, x_first:x_second]
+                            roi_resized = cv2.resize(roi, (64, 128), interpolation=cv2.INTER_AREA)
+                            roi_hog = hog.compute(roi_resized).transpose()
+                            X_test.extend(roi_hog)
+                            y_test.append(0)
+                        if x_second == width:
+                            break
+                        x_first += x_size // 2
+                        x_second += x_size // 2
+                        if x_second > width:
+                            x_second = width
+                            x_first = width - x_size
+                    if y_second == height:
+                        break
+                    y_first += y_size // 2
+                    y_second += y_size // 2
+                    if y_second > height:
+                        y_second = height
+                        y_first = height - y_size
+                x_size *= 2
+                y_size *= 2
+
+            image = cv2.resize(image, (64, 128), interpolation=cv2.INTER_AREA)
+            X_test.extend(hog.compute(image).transpose())
             y_test.append(0)
+
     return X_train, X_test, y_train, y_test
 
 
@@ -117,7 +154,8 @@ def GetBestHyperparameters(X_train, X_test, y_train, y_test):
     kernel = 'rbf'
     filename = "svm_model.sav"
     model = SVC(C=2**best_c, kernel=kernel, gamma=2**best_gamma).fit(X_train, y_train)
-    pickle.dump(model, open(filename, 'wb'))
+    with open(filename, 'wb') as file:
+        pickle.dump(model, file)
     print("C: ", best_c, " gamma: ", best_gamma)
 
 
@@ -126,8 +164,17 @@ Load SVM from file
 '''
 def checkSVM(model, X_test, y_test):
     values = model.predict(X_test)
+    false_positive = 0
+    false_negative = 0
+    for value, true in zip(values, y_test):
+        if true == 1 and value == 0:
+            false_negative += 1
+        if true == 0 and value == 1:
+            false_positive += 1
     correct_classification = np.sum(values == y_test)
     print("Correctly classified {}/{} ({}%)".format(correct_classification, len(values), correct_classification / len(values)))
+    print("False positives: ", false_positive)
+    print("False negatives: ", false_negative)
 
 
 '''
@@ -205,17 +252,73 @@ def CheckImage(model, X_test, y_test):
             cv2.waitKey(0)
             cv2.destroyAllWindows()
 
+
+def separateCrowdBackground(model):
+    hog = cv2.HOGDescriptor()
+    images = []
+    images.append(cv2.imread("./crowdone.jpg"))
+    images.append(cv2.imread("./crowdtwo.jpg"))
+    images.append(cv2.imread("./crowdthree.jpg"))
+
+    for image in images:
+        x_size= 64
+        y_size= 128
+        height, width, channels = image.shape
+        while x_size < width and y_size < height:
+            y_first = 0
+            y_second = y_size
+            while y_second < height:
+                x_first = 0
+                x_second = x_size
+                while x_second < width:
+                    roi = image[y_first:y_second, x_first:x_second]
+                    roi_resized = cv2.resize(roi, (64, 128), interpolation=cv2.INTER_AREA)
+                    roi_hog = hog.compute(roi_resized).transpose()
+                    value = model.predict(roi_hog)
+                    if value == 1:
+                        image[y_first:y_second, x_first:x_second, 1] = 240
+                    if x_second == width:
+                        break
+                    x_first += int(x_size / 2)
+                    x_second += int(x_size / 2)
+                    if x_second > width:
+                        x_second = width
+                        x_first = width - x_size
+                if y_second == height:
+                    break
+                y_first += int(y_size / 2)
+                y_second += int(y_size / 2)
+                if y_second > height:
+                    y_second = height
+                    y_first = height - y_size
+            x_size *= 2
+            y_size *= 2
+        roi_resized = cv2.resize(image, (64, 128), interpolation=cv2.INTER_AREA)
+        roi_hog = hog.compute(roi_resized).transpose()
+        value = model.predict(roi_hog)
+        if value == 1:
+            image[:, :, 1] = 240
+        cv2.imshow('Crowd-background separated', cv2.resize(image, (512, 512)))
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
+
+
+
 def trainSVM(X_train, y_train, C, gamma, save, filename="svm_model.sav"):
     model = SVC(C=C, kernel='rbf', gamma=gamma).fit(X_train, y_train)
     if save:
         with open(filename, 'wb') as file:
             pickle.dump(model, file) 
     return model
+
+
 X_train, X_test, y_train, y_test = GetDataForTraining("./INRIAPerson")
 #C, gamma = GetBestHyperparameters(X_train, X_test, y_train, y_test)
-best_C = 2 ** 2.0
+print("Number of images: ", len(X_train))
+best_C = 2 ** 1.0
 best_gamma = 2 ** -5.0
 print("C: ", best_C, " gamma: ", best_gamma)
 model = trainSVM(X_train, y_train, C=best_C, gamma=best_gamma, save=True)
 checkSVM(model, X_test, y_test)
 CheckImage(model, X_test, y_test)
+separateCrowdBackground(model)
